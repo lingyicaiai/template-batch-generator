@@ -1,19 +1,14 @@
 # Template Batch Generator
 
-A tiny web tool to generate batch text outputs from a CSV + template.
+一个纯前端小工具：用 `{{变量}}` 模板 + CSV 数据批量生成文案，支持一键下载 txt。
 
-## Why
-People frequently ask for "template automation" and "batch generation" in communities.
-This MVP lets users paste CSV data and generate personalized text in one click.
+## 使用场景
+- 批量客服回复草稿
+- 通知短信/邮件文案生成
+- 运营活动模板批量填充
 
-## Features
-- CSV input (header + rows)
-- Placeholder replacement with `{{field}}`
-- Filename pattern support (`{{name}}.txt`)
-- Download all generated outputs as one text bundle
+## 本地运行
+直接打开 `index.html` 即可。
 
-## Run locally
-Just open `index.html` in browser.
-
-## Deploy
-Designed for static hosting on Vercel.
+## 部署
+已适配 Vercel 静态部署。

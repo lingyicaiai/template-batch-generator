@@ -1,103 +1,117 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Template Batch Generator</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 24px; max-width: 980px; }
-    textarea, input { width: 100%; margin-top: 8px; margin-bottom: 12px; }
-    textarea { min-height: 140px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    button { padding: 10px 14px; cursor: pointer; }
-    pre { background: #f6f8fa; padding: 12px; overflow: auto; }
-    .muted { color: #666; font-size: 14px; }
+    body{font-family:Inter,system-ui,Arial,sans-serif;max-width:980px;margin:24px auto;padding:0 16px;color:#111}
+    h1{font-size:28px;margin-bottom:8px} .muted{color:#555}
+    textarea{width:100%;min-height:140px;padding:10px;border:1px solid #ddd;border-radius:8px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{border:1px solid #eee;border-radius:10px;padding:14px}
+    button{background:#111;color:#fff;border:none;border-radius:8px;padding:10px 14px;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    input[type=file]{margin:8px 0}
+    pre{white-space:pre-wrap;background:#fafafa;border:1px solid #eee;padding:12px;border-radius:8px;max-height:260px;overflow:auto}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f1f5f9;margin-right:6px;font-size:12px}
   </style>
 </head>
 <body>
   <h1>Template Batch Generator</h1>
-  <p class="muted">Paste CSV + template, generate one output per row. Use placeholders like <code>{{name}}</code>, <code>{{company}}</code>.</p>
+  <p class="muted">把一份模板（含 <code>{{变量}}</code>）和 CSV 数据结合，批量生成文案。纯前端运行，无需登录。</p>
 
   <div class="row">
-    <div>
-      <label>CSV Data (first row as headers)</label>
-      <textarea id="csv" placeholder="name,company\nAlice,Acme\nBob,Contoso"></textarea>
+    <div class="card">
+      <h3>1) 模板</h3>
+      <textarea id="template" placeholder="示例：\n你好 {{name}}，\n你的订单 {{order_id}} 已发货，预计 {{eta}} 到达。"></textarea>
+      <div style="margin-top:8px" id="vars"></div>
     </div>
-    <div>
-      <label>Template</label>
-      <textarea id="tpl" placeholder="Hi {{name}},\n\nWelcome to {{company}}."></textarea>
+    <div class="card">
+      <h3>2) CSV 数据</h3>
+      <input type="file" id="csvFile" accept=".csv,text/csv" />
+      <p class="muted">第一行为字段名，例如：name,order_id,eta</p>
+      <pre id="csvPreview">尚未加载 CSV</pre>
     </div>
   </div>
 
-  <label>Filename pattern (optional, placeholders supported)</label>
-  <input id="namePattern" placeholder="{{name}}.txt" value="{{name}}.txt" />
+  <div class="card" style="margin-top:16px">
+    <h3>3) 生成结果</h3>
+    <button id="genBtn" disabled>生成并下载 .txt</button>
+    <button id="copyBtn" disabled style="margin-left:8px;background:#334155">复制全部</button>
+    <p class="muted" id="stat"></p>
+    <pre id="output">等待输入...</pre>
+  </div>
 
-  <button id="run">Generate</button>
-  <button id="downloadAll" disabled>Download All (.txt bundle)</button>
+<script>
+const templateEl = document.getElementById('template');
+const csvFileEl = document.getElementById('csvFile');
+const genBtn = document.getElementById('genBtn');
+const copyBtn = document.getElementById('copyBtn');
+const outputEl = document.getElementById('output');
+const statEl = document.getElementById('stat');
+const varsEl = document.getElementById('vars');
+const csvPreview = document.getElementById('csvPreview');
+let rows = [];
 
-  <h3>Preview</h3>
-  <pre id="out">No output yet.</pre>
+function parseCSV(text){
+  const lines = text.replace(/\r/g,'').split('\n').filter(Boolean);
+  if(lines.length < 2) return [];
+  const headers = lines[0].split(',').map(s=>s.trim());
+  return lines.slice(1).map(line=>{
+    const cols = line.split(',');
+    const obj={};
+    headers.forEach((h,i)=> obj[h] = (cols[i]||'').trim());
+    return obj;
+  });
+}
 
-  <script>
-    function parseCSV(text) {
-      const lines = text.trim().split(/\r?\n/).filter(Boolean);
-      if (lines.length < 2) return { headers: [], rows: [] };
-      const split = (line) => {
-        const out = []; let cur = ''; let q = false;
-        for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          if (ch === '"') {
-            if (q && line[i+1] === '"') { cur += '"'; i++; }
-            else q = !q;
-          } else if (ch === ',' && !q) {
-            out.push(cur); cur = '';
-          } else cur += ch;
-        }
-        out.push(cur);
-        return out.map(s => s.trim());
-      };
-      const headers = split(lines[0]);
-      const rows = lines.slice(1).map(line => {
-        const vals = split(line);
-        const obj = {};
-        headers.forEach((h, i) => obj[h] = vals[i] ?? '');
-        return obj;
-      });
-      return { headers, rows };
-    }
+function extractVars(t){
+  const m=[...t.matchAll(/{{\s*([a-zA-Z0-9_\-]+)\s*}}/g)].map(x=>x[1]);
+  return [...new Set(m)];
+}
 
-    function fillTemplate(tpl, data) {
-      return tpl.replace(/\{\{\s*([\w-]+)\s*\}\}/g, (_, key) => data[key] ?? '');
-    }
+function renderVarPills(){
+  const vs = extractVars(templateEl.value);
+  varsEl.innerHTML = vs.length ? vs.map(v=>`<span class="pill">${v}</span>`).join('') : '<span class="muted">未检测到变量</span>';
+  genBtn.disabled = !(vs.length && rows.length);
+}
 
-    let bundle = '';
-    document.getElementById('run').onclick = () => {
-      const csv = document.getElementById('csv').value;
-      const tpl = document.getElementById('tpl').value;
-      const pat = document.getElementById('namePattern').value || 'item.txt';
-      const { rows } = parseCSV(csv);
-      if (!rows.length || !tpl.trim()) {
-        document.getElementById('out').textContent = 'Please provide valid CSV with at least one data row and a template.';
-        return;
-      }
-      const parts = rows.map((row, idx) => {
-        const fn = fillTemplate(pat, row) || `item-${idx+1}.txt`;
-        const body = fillTemplate(tpl, row);
-        return `### FILE: ${fn}\n${body}`;
-      });
-      bundle = parts.join('\n\n---\n\n');
-      document.getElementById('out').textContent = bundle.slice(0, 5000);
-      document.getElementById('downloadAll').disabled = false;
-    };
+templateEl.addEventListener('input', renderVarPills);
 
-    document.getElementById('downloadAll').onclick = () => {
-      const blob = new Blob([bundle], { type: 'text/plain;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'generated-bundle.txt';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    };
-  </script>
+csvFileEl.addEventListener('change', async e=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const text = await f.text();
+  rows = parseCSV(text);
+  csvPreview.textContent = text.slice(0,1000);
+  renderVarPills();
+});
+
+genBtn.addEventListener('click', ()=>{
+  const tpl = templateEl.value;
+  const vs = extractVars(tpl);
+  const rendered = rows.map((row,idx)=>{
+    let out = tpl;
+    vs.forEach(v=>{ out = out.replaceAll(new RegExp(`{{\\s*${v}\\s*}}`,'g'), row[v] ?? ''); });
+    return `### #${idx+1}\n${out}`;
+  }).join('\n\n---\n\n');
+  outputEl.textContent = rendered || '无结果';
+  statEl.textContent = `已生成 ${rows.length} 条`;
+  copyBtn.disabled = !rendered;
+  const blob = new Blob([rendered], {type:'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'batch-output.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+copyBtn.addEventListener('click', async ()=>{
+  await navigator.clipboard.writeText(outputEl.textContent);
+  copyBtn.textContent = '已复制';
+  setTimeout(()=>copyBtn.textContent='复制全部',1200);
+});
+</script>
 </body>
 </html>
